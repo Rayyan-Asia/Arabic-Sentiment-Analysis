@@ -2,6 +2,8 @@
 **Birzeit University — Department of Electrical and Computer Engineering**
 **Second Semester 2025-2026 | Second Assignment**
 
+**Rayyan Asia**
+
 ---
 
 # Problem Overview
@@ -14,13 +16,13 @@ We compared multiple text representation methods (TF-IDF, Word2Vec, FastText) pa
 
 # 1. Dataset
 
-The dataset has 9,694 tweets. The class distribution is heavily skewed — 75% of the data is NEUTRAL, leaving only 17% NEG and 8% POS.
+The dataset has 9,694 raw tweets (9,684 after preprocessing drops 10 empty rows — see Section 2). The class distribution is heavily skewed — 75% of the data is NEUTRAL, leaving only 17% NEG and 8% POS.
 
 | Class | Count | % |
 |---|---|---|
-| NEUTRAL | ~7,274 | 75% |
-| NEG | ~1,641 | 17% |
-| POS | ~769 | 8% |
+| NEUTRAL | 7,268 | 75% |
+| NEG | 1,641 | 17% |
+| POS | 775 | 8% |
 
 This imbalance is the central challenge of the assignment. A model that always predicts NEUTRAL would score 75% accuracy while being completely useless — so accuracy alone is a misleading metric here. All our decisions around evaluation and class handling were driven by this.
 
@@ -52,6 +54,8 @@ Arabic social media text requires specific cleaning steps before feeding it to a
 Negation words (لا، لم، ليس) were intentionally kept — removing them flips sentiment entirely (e.g. "لا أحب" → "أحب" changes "I don't like" to "I like").
 
 Emojis were removed entirely. Although emojis do provide sentiment, converting them to Arabic translations would overcomplicate the pipeline too much. We recommend keeping it strictly words to keep things manageable.
+
+Stemming and lemmatization were left out on purpose. Arabic stemmers tend to cut off word endings that carry sentiment or negation, and FastText already deals with spelling and word-form variation through its subword n-grams — so stemming would risk losing signal without adding much.
 
 After preprocessing, 10 tweets became empty and were dropped, leaving **9,684 samples**.
 
@@ -86,11 +90,13 @@ Bigrams were included to capture negation phrases like "لا يحب". Sublinear 
 **Compatible models:** ✓ Naïve Bayes (requires non-negative values — TF-IDF always ≥ 0), ✓ Random Forest. ✗ CNN / RNN / LSTM (these expect integer token sequences, not pre-computed vectors).
 
 **Pros:**
+
 - No training required — fit is instant
 - Bigrams capture short negation phrases that unigrams miss
 - Fully interpretable — feature weights map directly to words
 
 **Cons:**
+
 - No semantic understanding — synonyms like "جيد" and "ممتاز" are treated as unrelated tokens
 - Arabic morphology inflates vocabulary — different surface forms of the same root count as separate features
 
@@ -107,10 +113,12 @@ The heavy class overlap in the PCA projection shows the embeddings did not learn
 **Compatible models:** ✓ Random Forest (accepts dense real-valued vectors including negatives). ✗ Naïve Bayes (vectors contain negative values). ✗ CNN / RNN / LSTM (learn their own embeddings internally).
 
 **Pros:**
+
 - Semantically meaningful — similar words cluster together, so synonyms share representation
 - Fixed-size output regardless of tweet length
 
 **Cons:**
+
 - Needs large corpora for quality embeddings; ~5,800 tweets is too small
 - Mean pooling destroys word order entirely
 - Cannot handle out-of-vocabulary words (no subword fallback)
@@ -128,10 +136,12 @@ Similar class overlap to Word2Vec — the corpus is too small for either embeddi
 **Compatible models:** ✓ Random Forest. ✗ Naïve Bayes (negative values). ✗ CNN / RNN / LSTM (learn their own embeddings internally).
 
 **Pros:**
+
 - Handles out-of-vocabulary words via subword n-grams — a major advantage for dialectal Arabic
 - More robust to spelling variation than Word2Vec
 
 **Cons:**
+
 - Mean pooling still loses word order
 - Negative values make it incompatible with Naïve Bayes
 - Slower to train than Word2Vec due to character n-gram computation
@@ -139,6 +149,8 @@ Similar class overlap to Word2Vec — the corpus is too small for either embeddi
 ---
 
 # 5. Traditional Machine Learning Models
+
+**Note on the tuning metric:** Hyperparameter search (GridSearchCV here, and the validation-F1 check used for the DL models in Section 6) picks the best config using weighted F1, not macro F1. With only 3 folds and so few NEG/POS rows in each one, macro F1 jumps around too much to pick a config off of. Weighted F1 is steadier for this. Macro F1 is still what we use to judge the final models in Sections 7-8, since that's the metric that actually shows how well a model handles the minority classes, not just NEUTRAL.
 
 ## 5.1 Naïve Bayes
 
@@ -276,16 +288,18 @@ When holding the classifier constant (Random Forest), dense embeddings come out 
 
 ## Sequential vs Non-sequential DL
 
-CNN outperforms both RNN and LSTM on macro F1 (0.46 vs 0.37 and 0.36). For short tweets (≤50 tokens), detecting local word patterns in parallel is more effective than processing the sequence step by step. LSTM leads on NEG recall (0.63) due to its gating mechanism, but that comes at the cost of accuracy (0.43).
+CNN outperforms both RNN and LSTM on macro F1 (0.46 vs 0.36 and 0.37). For short tweets (≤50 tokens), detecting local word patterns in parallel is more effective than processing the sequence step by step. LSTM leads on NEG recall (0.63) due to its gating mechanism, but that comes at the cost of accuracy (0.43).
 
 ## Hyperparameter Tuning Influence
 
 **Traditional ML:**
+
 - NB: The default alpha=1.0 applies heavy smoothing that dilutes distinctive words. Tuning to alpha=0.1 let sentiment-specific terms carry more weight.
 - RF + TF-IDF: `class_weight=balanced` actually hurt here — the 10,000-feature sparse space already gave RF enough signal. Forcing balanced weights over-predicted minority classes with poor precision.
 - RF + Word2Vec / FastText: `class_weight=balanced` was necessary for both — without it, RF would barely predict minority classes at all.
 
 **Deep Learning:**
+
 - CNN: Kernel size had the biggest impact. Jumping from kernel=3 to kernel=5 dropped val F1 from 0.654 to 0.270 — too wide a window for short tweet patterns.
 - RNN: More hidden units hurt (64 → 128 dropped val F1 from 0.524 to 0.401). Larger hidden states amplified the vanishing gradient problem.
 - LSTM: More hidden units helped (64 → 128 improved val F1 from 0.396 to 0.463+). The gating mechanism handles larger capacity better than plain RNN.
@@ -320,7 +334,7 @@ Traditional ML (NB + TF-IDF) achieved the best macro F1 (0.42), but that is only
 
 **3. Sequential (RNN/LSTM) vs non-sequential (CNN) — what did we find?**
 
-CNN outperformed both RNN and LSTM on macro F1 (0.46 vs 0.37 and 0.36). For short tweets (≤50 tokens), CNN's ability to detect local word patterns in parallel is more effective than processing the sequence step by step. RNN and LSTM suffer from vanishing gradients and struggle to carry sentiment signals across the full sequence, making them less effective here despite being architecturally more expressive.
+CNN outperformed both RNN and LSTM on macro F1 (0.46 vs 0.36 and 0.37). For short tweets (≤50 tokens), CNN's ability to detect local word patterns in parallel is more effective than processing the sequence step by step. RNN and LSTM suffer from vanishing gradients and struggle to carry sentiment signals across the full sequence, making them less effective here despite being architecturally more expressive.
 
 ---
 
